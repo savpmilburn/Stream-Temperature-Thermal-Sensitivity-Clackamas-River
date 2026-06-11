@@ -187,7 +187,7 @@ export default function SitePage () {
     }); // Papa.parse for coordinates
 
     // Landscape EVs data
-    Papa.parse('/data/SortedTSandEVs2021.csv', {
+    Papa.parse('/data/SortedTSAndEVs2021.csv', {
       download: true,
       header: true,
       dynamicTyping: true,
