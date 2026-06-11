@@ -5,7 +5,7 @@
 **Built during 2025 National Science Foundation undergraduate research internship [(NSF REU)](https://www.nsf.gov/funding/initiatives/reu) @ Portland State University under [Dr. Heejun Chang](https://www.pdx.edu/profile/heejun-chang) & [Dr. Christof Teuscher](https://www.pdx.edu/profile/christof-teuscher).**
 
 ## Live Demo
-[thermal-sensitivity-clackamas-river](https://thermal-sensitivity-clackamas-river.vercel.app/)
+[thermal-sensitivity-clackamas-river.vercel.app](https://thermal-sensitivity-clackamas-river.vercel.app/)
 
 ## About
 Climate change + urbanization has led to increasing stream temperatures that decrease drinking water quality & destroy thermally suitable habitats for cold-water fish like Coho + Chinook salmon. Water suppliers, ecologists, land managers, & riverine researchers can prioritize climate-vulnerable streams + better protect stream ecosystems by analyzing thermal sensitivity values, air-stream temperature time series, & landscape covariates controlling these values across the Clackamas River Basin. 
