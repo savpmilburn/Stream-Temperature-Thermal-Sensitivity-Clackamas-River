@@ -1,0 +1,390 @@
+// SitePage.tsx = site/[id]/page.tsx: Dynamic page for displaying each site's unique thermal sensitivity
+"use client"
+import Papa from 'papaparse';
+// airTemperature2021.csv = site - date - tmean_C, tmin_C, tmax_C
+// CRBStreamTemperatureMMM2021.csv = siteID - date - dailyMeanST - dailyMinST - dailyMaxST - timeMinST - timeMaxST
+// coordinates2021.csv - lat - lon - siteID
+
+import { useState, useEffect } from 'react';
+import { useParams, useRouter } from 'next/navigation'; 
+
+import dynamic from 'next/dynamic'
+const Plot = dynamic(() => import('react-plotly.js'), {ssr: false});
+
+// Define TypeScript interfaces for SitePage components props - ST/AT/coordinate data can be passed
+interface AirTempProps {
+    site: number | string;
+    date: string;
+    tmean_C: number;
+    tmin_C: number;
+    tmax_C: number;
+} // AirTempProps
+interface StreamTempProps {
+    siteID: number | string;
+    date: string;
+    dailyMeanST: number;
+    dailyMinST: number;
+    dailyMaxST: number;
+    timeMinST: string;
+    timeMaxST: string;
+} // StreamTempProps
+interface CoordinateProps {
+    lat: number;
+    lon: number;
+    siteID: number | string;
+} // CoordinateProps
+interface CombinedMeanTempProps {
+    date: string;
+    tmean_C: number;
+    dailyMeanST: number;
+} // CombinedMeanTempProps
+
+// For Plot
+interface LinRegProps {
+    slope: number;
+    intercept: number;
+    rSquared: number;
+} // LinRegProps
+
+// Adding landscape covariates
+interface landscapeEVsProps {
+    site: number | string;
+    Stream_Nam: string;
+    x: number;
+    y: number;
+    meanAirTemp: number;
+    meanStreamTemp: number;
+    thermalSensitivity: number;
+    SLOPE: number;
+    h2oHiCascP: number;
+    h2oWetland: number;
+    Shrub21: number;
+    BurnRCA: number;
+    index: number;
+} // landscapeEVsProps
+
+// Calculate simple linear regression for thermal sensitivity: daily mean ST ~ daily mean AT
+// Calculate linear regression for thermal sensitivity (improved version)
+const linReg = (data: CombinedMeanTempProps[]): LinRegProps => {
+    // No data
+    if (data.length === 0) {
+        return { slope: 0, intercept: 0, rSquared: 0 };
+    } // if
+
+    // Extract x (AT) and y (ST) arrays
+    const xValues = data.map(d => d.tmean_C);
+    const yValues = data.map(d => d.dailyMeanST);
+    // Calculate means for AT & ST 
+    const meanX = xValues.reduce((sum, val) => sum + val, 0) / data.length;
+    const meanY = yValues.reduce((sum, val) => sum + val, 0) / data.length;
+    // Calculate slope (b1)
+    const numerator = xValues.reduce((sum, x, i) => sum + (x - meanX) * (yValues[i] - meanY), 0);
+    const denominator = xValues.reduce((sum, x) => sum + Math.pow(x - meanX, 2), 0);
+    const slope = denominator !== 0 ? numerator / denominator : 0;
+    // Calculate intercept (b0)
+    const intercept = meanY - slope * meanX;
+    // Calculate R-squared
+    const predictions = xValues.map(x => intercept + slope * x);
+    const residuals = predictions.map((pred, i) => yValues[i] - pred);
+    const ssResiduals = residuals.reduce((sum, residual) => sum + Math.pow(residual, 2), 0);
+    const ssTotal = yValues.reduce((sum, y) => sum + Math.pow(y - meanY, 2), 0);
+    const rSquared = ssTotal !== 0 ? 1 - (ssResiduals / ssTotal) : 0;
+    return { slope, intercept, rSquared };
+}; // calculateLinearRegression
+
+
+// Return SitePage component
+export default function SitePage () {
+    const params = useParams();
+    const id = params.id as string;
+
+    const router = useRouter();
+
+    // useState for AirTempProps, StreamTempProps, CoordinateProps, CombinedMeanTempProps
+    const[airTempData, setAirTempData] = useState<AirTempProps[]>([]);
+    const[streamTempData, setStreamTempData] = useState<StreamTempProps[]>([]);
+    const[coordinateData, setCoordinateData] = useState<CoordinateProps[]>([]);
+    const[combinedMeanTempData, setCombinedMeanTempData] = useState<CombinedMeanTempProps[]>([]);
+    const[isLoading, setIsLoading] = useState(true);
+
+    // useState for linear regression
+    const[meanAirTemp, setMeanAirTemp] = useState<number>(0);
+    const[meanStreamTemp, setMeanStreamTemp] = useState<number>(0);
+    const[regResults, setRegResults] = useState<LinRegProps>({ slope:0, intercept: 0, rSquared: 0});
+
+    // useState for landscape covariates
+    const[landscapeEVs, setLandscapeEvs] = useState<landscapeEVsProps[]>([]);
+
+    // Site navigation - go upstream/downstream
+    const navUpstream = () => {
+        const currentIndex = parseInt(id);
+        if (currentIndex > 1) {
+            router.push(`/site/${currentIndex - 1}`);
+        } // if
+    }; // navUpstream
+
+    const navDownstream = () => {
+        const currentIndex = parseInt(id);
+        if (currentIndex < 72) {
+            router.push(`/site/${currentIndex + 1}`);
+        } // if 
+    }; // navDownstream
+
+  // Using useEffect for data loading of AT/ST and coordinates using Papa Parse to load CSV file
+  useEffect(() => {
+    let loadedFiles = 0;
+    const checkIfLoaded = () => {
+        loadedFiles++;
+        if (loadedFiles === 4) {
+            setIsLoading(false);
+        } // if
+    }; // checkIfLoaded
+
+    // Don't need .then() statements since PapaParse handles promises internally
+    // AT data
+    Papa.parse('/data/airTemperature2021.csv', {
+      download: true,
+      header: true,
+      dynamicTyping: true,
+      complete: (results) => {
+      setAirTempData(results.data as AirTempProps[]);
+      checkIfLoaded();
+      }, // complete
+      error: (error) => {
+        console.log("Air Temp CSV loading error:", error);
+        checkIfLoaded();
+      } // error
+    }); // Papa.parse for AT
+
+    // ST data
+    Papa.parse('/data/CRBStreamTemperatureMMM2021.csv', {
+      download: true,
+      header: true,
+      dynamicTyping: true,
+      complete: (results) => {
+      setStreamTempData(results.data as StreamTempProps[]);
+      checkIfLoaded();
+      }, // complete
+      error: (error) => {
+        console.log("Stream Temp CSV loading error:", error);
+        checkIfLoaded();
+      } // error
+    }); // Papa.parse for ST
+
+    // Coordinates data
+    Papa.parse('/data/coordinates2021.csv', {
+      download: true,
+      header: true,
+      dynamicTyping: true,
+      complete: (results) => {
+      setCoordinateData(results.data as CoordinateProps[]);
+      checkIfLoaded();
+      }, // complete
+      error: (error) => {
+        console.log("Coordinates CSV loading error:", error);
+        checkIfLoaded();
+      } // error
+    }); // Papa.parse for coordinates
+
+    // Landscape EVs data
+    Papa.parse('/data/SortedTSandEVs2021.csv', {
+      download: true,
+      header: true,
+      dynamicTyping: true,
+      complete: (results) => {
+      setLandscapeEvs(results.data as landscapeEVsProps[]);
+      checkIfLoaded();
+      }, // complete
+      error: (error) => {
+        console.log("SortedTSAndEVs CSV loading error:", error);
+        checkIfLoaded();
+      } // error
+    }); // Papa.parse for landscape EVs
+
+  }, []); // useEffect - runs once on mount - data loading
+
+  // Combine AT and ST data for current site after data is loaded
+  useEffect(() => {
+    if(!isLoading && airTempData.length > 0 && streamTempData.length > 0) {
+        const currentIndex = parseInt(id);
+        // Find the site data by index first
+        const siteTSAndEVs = landscapeEVs.find(data => data.index === currentIndex);
+        const currentSiteID = siteTSAndEVs?.site;
+
+        if(currentSiteID) {
+            // Filter data for current site using siteID, but handle non-numeric values
+            const siteAirData = airTempData.filter(data => String(data.site) === String(currentSiteID));
+            const siteStreamData = streamTempData.filter(data => String(data.siteID) === String(currentSiteID));
+            // Combine AT and ST data by dates
+            const combinedData: CombinedMeanTempProps[] = [];
+            siteAirData.forEach(airData => {
+                const match = siteStreamData.find(streamData => streamData.date === airData.date);
+                if (match) {
+                    combinedData.push({date: airData.date, tmean_C: airData.tmean_C, dailyMeanST: match.dailyMeanST});
+                } // if
+            });
+            setCombinedMeanTempData(combinedData);
+          
+            // Calculate means and regression
+            const airMean = combinedData.reduce((sum, d) => sum + d.tmean_C, 0) / combinedData.length;
+            const streamMean = combinedData.reduce((sum, d) => sum + d.dailyMeanST, 0) / combinedData.length;
+            setMeanAirTemp(airMean);
+            setMeanStreamTemp(streamMean);
+            const slr = linReg(combinedData);
+            setRegResults(slr);
+        } // if
+    } // if
+
+  }, [isLoading, airTempData, streamTempData, landscapeEVs, id]); // useEffect - combining AT and ST data
+  
+  // Find SLR regression line for plotting graph
+  const computeRegLine = (): { x: number[], y: number[] } => {
+    // Standardizing axes to 0 to 30
+    const xValues = [0, 30];
+    const yValues = xValues.map(x => regResults.slope * x + regResults.intercept);
+    return { x: xValues, y: yValues };
+  }; // computeRegLine
+  const slrRegLine = computeRegLine();
+
+  // Get center of regression line and position legend for each dynamically rendered regression line
+  const findLegendPos = (): { x: number, y: number } => {
+    // Regression results don't exist 
+    if (!regResults) {
+        return { x: 0.25, y: 0.85 }; 
+    } // if
+    
+    const centerX = 8;
+    // Get center of regression line
+    const centerY = regResults.slope * centerX + regResults.intercept;
+    
+    // Normalize to [0, 1]
+    const legendX = (centerX - 4) / (28 - 4); 
+    // Add extra space to make sure legend NOT on regression line/data points
+    const legendY = (centerY - 4) / (28 - 4) + 0.55; 
+    
+    // Ensure legend stays within plot bounds
+    return {
+        x: legendX, 
+        y: Math.max(0.1, Math.min(0.99, legendY))
+    };
+  }; // findLegendPos
+
+  // Find landscape covariate values
+  const siteTSAndEVs = landscapeEVs.find(data => data.index === parseInt(id));
+  const currentSiteID = siteTSAndEVs?.site;
+  // Find coordinates for current site
+  const siteCoords = coordinateData.find(coord => String(coord.siteID) === String(currentSiteID));
+  return (
+    <div className="min-h-screen bg-gray-50 p-6">
+        <div className="max-w-6xl mx-auto">
+            <div className="mb-6">
+                <button 
+                    onClick={() => router.push('/')}
+                    className="text-blue-600 hover:text-blue-800 mb-4"
+                >
+                    Back to Map
+                </button>
+                <h1 className="text-3xl font-bold text-gray-900">
+                    Site {id}: {siteTSAndEVs?.Stream_Nam}
+                </h1>
+            </div>
+
+            <div className="flex justify-between mb-4">
+                {parseInt(id) > 1 && (
+                <button onClick={navUpstream} className="bg-blue-600 text-white px-3 py-2 rounded text-sm hover:bg-blue-700 transition-colors"
+                    >
+                     ← Move Upstream: Site {parseInt(id) - 1}
+                </button>
+                )}
+                {parseInt(id) < 72 && (
+                <button onClick={navDownstream} className="bg-blue-600 text-white px-3 py-2 rounded text-sm hover:bg-blue-700 transition-colors"
+                    >
+                    Move Downstream: Site {parseInt(id) + 1} → 
+                </button>
+                )}
+            </div>
+                
+            {isLoading ? (
+                <div className="flex justify-center items-center h-64">
+                    <p className="text-lg text-gray-600">Loading site data...</p>
+                </div>
+                ) : (
+                <div className="bg-white rounded-lg shadow-lg p-6 mb-6">
+                    <div style={{width: '100%', aspectRatio: '1/1', maxWidth: '680px', margin: '0 auto', position: 'relative'}}>
+                        {/* @ts-expect-error plotly type definitions outdated */}
+                        <Plot
+                            data={[
+                                {
+                                    x: combinedMeanTempData.map(d => d.tmean_C),
+                                    y: combinedMeanTempData.map(d => d.dailyMeanST),
+                                    type: 'scatter',
+                                    mode: 'markers',
+                                    marker: { color: '#636efa', size: 8 },
+                                    name: 'Daily Values',
+                                    hovertemplate: 'Air Temp: %{x}°C<br>Stream Temp: %{y}°C<extra></extra>',
+                                    showlegend:false
+                                },
+                                {
+                                    x: slrRegLine.x,
+                                    y: slrRegLine.y,
+                                    type: 'scatter',
+                                    mode: 'lines',
+                                    line: { color: '#fea15b', width: 2 },
+                                    name: `Thermal Sensitivity = ${regResults.slope.toFixed(3)}`,
+                                    hoverinfo: 'skip'
+                                }
+                            ]}
+                            // Graph scale: set to 4 - 28 instead of 0
+                            // Min & Max of DailyMeanAT: 8.4312 - 27.7688
+                            // Min & Max of DailyMeanAT: 4.511 - 24.827
+                            layout={{
+                                xaxis: {
+                                    title: { text: 'Mean Air Temperature (°C)', standoff: 100},
+                                    range: [4, 28],
+                                    font: { family: 'Merriweather, serif', color: 'black', size: 24 }
+                                },
+                                yaxis: {
+                                    title: {text: 'Mean Stream Temperature (°C)', standoff: 100},
+                                    standoff: 100,
+                                    range: [4, 28],
+                                    font: { family: 'Merriweather, serif', color: 'black', size: 24 }
+                                },
+                                legend: {
+                                    ...findLegendPos(),
+                                    bgcolor: '#fff',
+                                    font: { family: 'Merriweather, serif', color: 'black', size: 24 }
+                                },
+                                plot_bgcolor: 'white',
+                                paper_bgcolor: 'white',
+                                font: { family: 'Merriweather, serif', color: 'black', size: 24 },
+                                hovermode: 'closest',
+                                hoverdistance: 20
+                            }}
+                            style={{ width: '100%', height: '100%', position: 'absolute', top: 0, left: 0}}
+                            config={{ responsive: true, displayModeBar: false }}
+                            useResizeHandler={true}
+                        />
+                    </div>
+                        
+                <div className="mt-4 p-4 bg-gray-100 rounded text-sm">
+                    {siteCoords && (<p>Coordinates: ({siteCoords.lat.toFixed(3)}, {siteCoords.lon.toFixed(3)})</p>)}
+                    <p>Mean air temperature: {meanAirTemp.toFixed(3)}°C</p>
+                    <p>Mean stream temperature: {meanStreamTemp.toFixed(3)}°C</p>
+                    {siteTSAndEVs && (
+                        <>
+                        <p>Thermal sensitivity: {siteTSAndEVs.thermalSensitivity.toFixed(3)}</p>
+                        <p>Stream channel slope: {siteTSAndEVs.SLOPE}</p>
+                        <p>High Cascades geology: {siteTSAndEVs.h2oHiCascP.toFixed(3)}</p>
+                        <p>Wetlands: {siteTSAndEVs.h2oWetland.toFixed(3)}</p>
+                        <p>Shrub: {siteTSAndEVs.Shrub21.toFixed(3)}</p>
+                        <p>Burn area: {siteTSAndEVs.BurnRCA.toFixed(3)}</p>
+                        </>
+                    )}
+                    
+                </div>
+            </div>
+                )}
+        </div>
+    </div>
+    );
+} // SitePage.tsx
