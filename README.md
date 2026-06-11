@@ -1,5 +1,5 @@
 # Stream Temperature Thermal Sensitivity in the Clackamas River Basin, Oregon, USA
-<img src="public/salmon-pexels-hberganza-34079758.jpg" alt="Hector Berganza salmon jumping photo." width="80%"/>
+<img src="public/salmon-pexels-hberganza-34079758.jpg" alt="Hector Berganza salmon jumping photo." width="100%"/>
 
 **Interactive web application visualizing stream temperature thermal sensitivity across 72 monitoring sites in the Clackamas River Basin, Oregon, USA.**
 **Built during 2025 National Science Foundation undergraduate research internship [(NSF REU)](https://www.nsf.gov/funding/initiatives/reu) @ Portland State University under [Dr. Heejun Chang](https://www.pdx.edu/profile/heejun-chang) & [Dr. Christof Teuscher](https://www.pdx.edu/profile/christof-teuscher).**
